@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/go-redis/redis"
 	"github.com/jinzhu/gorm"
@@ -15,8 +18,7 @@ import (
 
 // urls -> URL database structure
 type urls struct {
-	gorm.Model
-	Tinyurl string
+	Tinyurl string `gorm:"PRIMARY_KEY"`
 	Longurl string
 }
 
@@ -40,13 +42,42 @@ func RedisClient() *redis.Client {
 	return client
 }
 
+// GenerateHashAndInsert -> Genarates a unique tiny URL and inserts it to DB
+func GenerateHashAndInsert(longURL string, startIndex int, dbClient *gorm.DB) string {
+	byteURLData := []byte(longURL)
+	hashedURLData := fmt.Sprintf("%x", md5.Sum(byteURLData))
+	tinyURLData := strings.Replace(base64.URLEncoding.EncodeToString([]byte(hashedURLData)), "/", "_", -1)
+	if len(tinyURLData) < (startIndex + 6) {
+		return "Unable to generate tiny URL"
+	}
+	tinyURL := tinyURLData[startIndex : startIndex+6]
+	dbURLData := urls{Tinyurl: tinyURL, Longurl: longURL}
+	if dbClient.First(&urls{}, "tinyurl = ?", tinyURL).RecordNotFound() {
+		dbClient.Create(&dbURLData)
+		return tinyURL
+	}
+	return GenerateHashAndInsert(longURL, startIndex+1, dbClient)
+}
+
 // IndexHandler -> Handles requests coming to / route
-func IndexHandler(w http.ResponseWriter, req *http.Request) {
-	io.WriteString(w, "Welcome!\n")
+func IndexHandler(res http.ResponseWriter, req *http.Request) {
+	io.WriteString(res, "Welcome!\n")
+}
+
+// GetTinyHandler -> Generates tiny URL and returns it
+func GetTinyHandler(res http.ResponseWriter, req *http.Request, dbClient *gorm.DB, redisClient *redis.Client) {
+	requestParams, err := req.URL.Query()["longUrl"]
+	if !err || len(requestParams[0]) < 1 {
+		io.WriteString(res, "URL parameter longUrl is missing")
+	}
+	longURL := requestParams[0]
+	tinyURL := GenerateHashAndInsert(longURL, 0, dbClient)
+	redisClient.HSet("urls", tinyURL, longURL)
+	io.WriteString(res, tinyURL)
 }
 
 // StopHandler -> Stops the server on request to /stop route
-func StopHandler(w http.ResponseWriter, req *http.Request, dbClient *gorm.DB, redisClient *redis.Client, serverInstance *http.Server) {
+func StopHandler(res http.ResponseWriter, req *http.Request, dbClient *gorm.DB, redisClient *redis.Client, serverInstance *http.Server) {
 	fmt.Println("Stopping server...\n")
 	dbClient.Close()
 	redisClient.Close()
@@ -68,11 +99,15 @@ func main() {
 		Addr: ":8080",
 	}
 
-	http.HandleFunc("/", IndexHandler)
+	http.HandleFunc("/getTiny/", func(w http.ResponseWriter, r *http.Request) {
+		GetTinyHandler(w, r, dbClient, redisClient)
+	})
 
 	http.HandleFunc("/stop", func(w http.ResponseWriter, r *http.Request) {
 		StopHandler(w, r, dbClient, redisClient, serverInstance)
 	})
+
+	http.HandleFunc("/", IndexHandler)
 
 	serverInstance.ListenAndServe()
 }
