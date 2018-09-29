@@ -69,11 +69,34 @@ func GetTinyHandler(res http.ResponseWriter, req *http.Request, dbClient *gorm.D
 	requestParams, err := req.URL.Query()["longUrl"]
 	if !err || len(requestParams[0]) < 1 {
 		io.WriteString(res, "URL parameter longUrl is missing")
+	} else {
+		longURL := requestParams[0]
+		tinyURL := GenerateHashAndInsert(longURL, 0, dbClient)
+		redisClient.HSet("urls", tinyURL, longURL)
+		io.WriteString(res, tinyURL)
 	}
-	longURL := requestParams[0]
-	tinyURL := GenerateHashAndInsert(longURL, 0, dbClient)
-	redisClient.HSet("urls", tinyURL, longURL)
-	io.WriteString(res, tinyURL)
+}
+
+// GetLongHandler -> Fetches long URL and returns it
+func GetLongHandler(res http.ResponseWriter, req *http.Request, dbClient *gorm.DB, redisClient *redis.Client) {
+	requestParams, err := req.URL.Query()["tinyUrl"]
+	if !err || len(requestParams[0]) < 1 {
+		io.WriteString(res, "URL parameter tinyUrl is missing")
+	}
+	tinyURL := requestParams[0]
+	redisSearchResult := redisClient.HGet("urls", tinyURL)
+	if redisSearchResult.Val() != "" {
+		io.WriteString(res, redisSearchResult.Val())
+	} else {
+		var url urls
+		dbClient.Where("tinyurl = ?", tinyURL).Select("longurl").Find(&url)
+		if url.Longurl != "" {
+			redisClient.HSet("urls", tinyURL, url.Longurl)
+			io.WriteString(res, url.Longurl)
+		} else {
+			io.WriteString(res, "Unable to find long URL")
+		}
+	}
 }
 
 // StopHandler -> Stops the server on request to /stop route
@@ -98,6 +121,10 @@ func main() {
 	serverInstance := &http.Server{
 		Addr: ":8080",
 	}
+
+	http.HandleFunc("/getLong/", func(w http.ResponseWriter, r *http.Request) {
+		GetLongHandler(w, r, dbClient, redisClient)
+	})
 
 	http.HandleFunc("/getTiny/", func(w http.ResponseWriter, r *http.Request) {
 		GetTinyHandler(w, r, dbClient, redisClient)
