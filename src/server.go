@@ -42,8 +42,14 @@ func RedisClient() *redis.Client {
 	return client
 }
 
+// StoreTinyURL -> puts the urls into cache and DB
+func StoreTinyURL(dbURLData urls, longURL string, tinyURL string, dbClient *gorm.DB, redisClient *redis.Client) {
+	dbClient.Create(&dbURLData)
+	redisClient.HSet("urls", tinyURL, longURL)
+}
+
 // GenerateHashAndInsert -> Genarates a unique tiny URL and inserts it to DB
-func GenerateHashAndInsert(longURL string, startIndex int, dbClient *gorm.DB) string {
+func GenerateHashAndInsert(longURL string, startIndex int, dbClient *gorm.DB, redisClient *redis.Client) string {
 	byteURLData := []byte(longURL)
 	hashedURLData := fmt.Sprintf("%x", md5.Sum(byteURLData))
 	tinyURLData := strings.Replace(base64.URLEncoding.EncodeToString([]byte(hashedURLData)), "/", "_", -1)
@@ -53,10 +59,10 @@ func GenerateHashAndInsert(longURL string, startIndex int, dbClient *gorm.DB) st
 	tinyURL := tinyURLData[startIndex : startIndex+6]
 	dbURLData := urls{Tinyurl: tinyURL, Longurl: longURL}
 	if dbClient.First(&urls{}, "tinyurl = ?", tinyURL).RecordNotFound() {
-		dbClient.Create(&dbURLData)
+		go StoreTinyURL(dbURLData, longURL, tinyURL, dbClient, redisClient)
 		return tinyURL
 	}
-	return GenerateHashAndInsert(longURL, startIndex+1, dbClient)
+	return GenerateHashAndInsert(longURL, startIndex+1, dbClient, redisClient)
 }
 
 // IndexHandler -> Handles requests coming to / route
@@ -71,8 +77,7 @@ func GetTinyHandler(res http.ResponseWriter, req *http.Request, dbClient *gorm.D
 		io.WriteString(res, "URL parameter longUrl is missing")
 	} else {
 		longURL := requestParams[0]
-		tinyURL := GenerateHashAndInsert(longURL, 0, dbClient)
-		redisClient.HSet("urls", tinyURL, longURL)
+		tinyURL := GenerateHashAndInsert(longURL, 0, dbClient, redisClient)
 		io.WriteString(res, tinyURL)
 	}
 }
@@ -122,11 +127,11 @@ func main() {
 		Addr: ":8080",
 	}
 
-	http.HandleFunc("/getLong/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/long/", func(w http.ResponseWriter, r *http.Request) {
 		GetLongHandler(w, r, dbClient, redisClient)
 	})
 
-	http.HandleFunc("/getTiny/", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/tiny/", func(w http.ResponseWriter, r *http.Request) {
 		GetTinyHandler(w, r, dbClient, redisClient)
 	})
 
