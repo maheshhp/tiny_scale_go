@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"strings"
+	"regexp"
 
 	"github.com/go-redis/redis"
 	"github.com/jinzhu/gorm"
@@ -53,7 +53,11 @@ func StoreTinyURL(dbURLData urls, longURL string, tinyURL string, dbClient *gorm
 func GenerateHashAndInsert(longURL string, startIndex int, dbClient *gorm.DB, redisClient *redis.Client) string {
 	byteURLData := []byte(longURL)
 	hashedURLData := fmt.Sprintf("%x", md5.Sum(byteURLData))
-	tinyURLData := strings.Replace(base64.URLEncoding.EncodeToString([]byte(hashedURLData)), "/", "_", -1)
+	tinyURLRegex, err := regexp.Compile("[/+]")
+	if err != nil {
+		return "Unable to generate tiny URL"
+	}
+	tinyURLData := tinyURLRegex.ReplaceAllString(base64.URLEncoding.EncodeToString([]byte(hashedURLData)), "_")
 	if len(tinyURLData) < (startIndex + 6) {
 		return "Unable to generate tiny URL"
 	}
@@ -64,7 +68,7 @@ func GenerateHashAndInsert(longURL string, startIndex int, dbClient *gorm.DB, re
 		fmt.Println(dbURLData, "in not found")
 		go StoreTinyURL(urls{Tinyurl: tinyURL, Longurl: longURL}, longURL, tinyURL, dbClient, redisClient)
 		return tinyURL
-	} else if (dbURLData.Tinyurl == tinyURL) && (dbURLData.Longurl == longURL){
+	} else if (dbURLData.Tinyurl == tinyURL) && (dbURLData.Longurl == longURL) {
 		fmt.Println(dbURLData, "in found and equal")
 		return tinyURL
 	} else {
