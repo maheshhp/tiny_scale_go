@@ -18,7 +18,8 @@ import (
 
 // urls -> URL database structure
 type urls struct {
-	Tinyurl string `gorm:"PRIMARY_KEY"`
+	gorm.Model
+	Tinyurl string `gorm:"unique;not null"`
 	Longurl string
 }
 
@@ -57,12 +58,18 @@ func GenerateHashAndInsert(longURL string, startIndex int, dbClient *gorm.DB, re
 		return "Unable to generate tiny URL"
 	}
 	tinyURL := tinyURLData[startIndex : startIndex+6]
-	dbURLData := urls{Tinyurl: tinyURL, Longurl: longURL}
-	if dbClient.First(&urls{}, "tinyurl = ?", tinyURL).RecordNotFound() {
-		go StoreTinyURL(dbURLData, longURL, tinyURL, dbClient, redisClient)
+	var dbURLData urls
+	dbClient.Where("tinyurl = ?", tinyURL).Find(&dbURLData)
+	if dbURLData.Tinyurl == "" {
+		fmt.Println(dbURLData, "in not found")
+		go StoreTinyURL(urls{Tinyurl: tinyURL, Longurl: longURL}, longURL, tinyURL, dbClient, redisClient)
 		return tinyURL
+	} else if (dbURLData.Tinyurl == tinyURL) && (dbURLData.Longurl == longURL){
+		fmt.Println(dbURLData, "in found and equal")
+		return tinyURL
+	} else {
+		return GenerateHashAndInsert(longURL, startIndex+1, dbClient, redisClient)
 	}
-	return GenerateHashAndInsert(longURL, startIndex+1, dbClient, redisClient)
 }
 
 // IndexHandler -> Handles requests coming to / route
