@@ -6,7 +6,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
+	"time"
 
 	"github.com/go-redis/redis"
 	"github.com/jinzhu/gorm"
@@ -25,7 +27,7 @@ type urls struct {
 
 // PostgresClient -> Provides a connection to the postgres database server
 func PostgresClient() *gorm.DB {
-	dbClient, err := gorm.Open("postgres", "host=127.0.0.1 port=5432 user=postgres dbname=tiny_scale_go password=<db password> sslmode=disable")
+	dbClient, err := gorm.Open("postgres", os.Getenv("DATABASE_URL"))
 	if err != nil {
 		panic(err)
 	}
@@ -34,12 +36,8 @@ func PostgresClient() *gorm.DB {
 
 // RedisClient -> Provides a connection to the Redis server
 func RedisClient() *redis.Client {
-	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "",
-		DB:       0,
-	})
-
+	redisURL, _ := redis.ParseURL(os.Getenv("REDIS_URL"))
+	client := redis.NewClient(redisURL)
 	return client
 }
 
@@ -126,16 +124,20 @@ func StopHandler(res http.ResponseWriter, req *http.Request, dbClient *gorm.DB, 
 func main() {
 	redisClient := RedisClient()
 
-	pong, err := redisClient.Ping().Result()
-	fmt.Println("Redis ping", pong, err)
-
 	dbClient := PostgresClient()
-	defer dbClient.Close()
 
 	dbClient.AutoMigrate(&urls{})
 
+	port := os.Getenv("PORT")
+
+	address := "0.0.0.0:" + port
+
+	fmt.Println(address)
+
 	serverInstance := &http.Server{
-		Addr: ":8080",
+		Addr:         "0.0.0.0:" + port,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
 	http.HandleFunc("/long/", func(w http.ResponseWriter, r *http.Request) {
