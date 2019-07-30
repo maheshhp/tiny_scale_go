@@ -130,12 +130,12 @@ func main() {
 
 	port := os.Getenv("PORT")
 
-	address := "0.0.0.0:" + port
+	address := ":" + port
 
 	fmt.Println(address)
 
 	serverInstance := &http.Server{
-		Addr:         "0.0.0.0:" + port,
+		Addr:         address,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
