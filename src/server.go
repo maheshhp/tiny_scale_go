@@ -36,7 +36,10 @@ func PostgresClient() *gorm.DB {
 
 // RedisClient -> Provides a connection to the Redis server
 func RedisClient() *redis.Client {
-	redisURL, _ := redis.ParseURL(os.Getenv("REDIS_URL"))
+	redisURL, err := redis.ParseURL(os.Getenv("REDIS_URL"))
+	if err != nil {
+		panic(err)
+	}
 	client := redis.NewClient(redisURL)
 	return client
 }
