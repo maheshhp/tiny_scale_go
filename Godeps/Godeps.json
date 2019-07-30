@@ -3,7 +3,7 @@
 	"GoVersion": "go1.12",
 	"GodepVersion": "v80",
 	"Packages": [
-		"./src"
+		"./src/server.go"
 	],
 	"Deps": [
 		{
